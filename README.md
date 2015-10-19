@@ -1,2 +1,2 @@
-# golang
-Small apps written in go.
+# weightWatcher
+Small app written in go to track your weight.
