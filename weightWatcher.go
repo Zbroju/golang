@@ -4,15 +4,32 @@
 package main
 
 import (
+	"fmt"
 	"github.com/codegangsta/cli"
+	"github.com/zbroju/gprops"
 	"os"
+	"path"
 	"strconv"
 	"time"
 )
 
-func main() {
+const (
+	configFileName = ".wwrc"
+)
 
-	//TODO: read config data (JSON format) - if the file doesn't exists - create a new one
+func main() {
+	dataFile := ""
+
+	configSettings, err := loadConfiguration()
+	if configSettings != nil {
+		if err != nil {
+			fmt.Fprint(os.Stderr, "ww: %s\n", err)
+			return
+		}
+		if configSettings.ContainsKey("DATA_FILE") {
+			dataFile = configSettings.Get("DATA_FILE")
+		}
+	}
 
 	// Commandline arguments
 	app := cli.NewApp()
@@ -32,7 +49,7 @@ func main() {
 		cli.StringFlag{
 			Name:  "date, d",
 			Value: today(),
-			Usage: "date of measurement",
+			Usage: "date of measurement (format: YYYY-MM-DD)",
 		},
 		cli.Float64Flag{
 			Name:  "weight, w",
@@ -41,9 +58,8 @@ func main() {
 		},
 		cli.StringFlag{
 			Name:  "file, f",
-			Value: "",
+			Value: dataFile,
 			Usage: "data file",
-			//TODO: assign default value to file taken from config file
 		},
 	}
 
@@ -95,11 +111,13 @@ func main() {
 	app.Run(os.Args)
 }
 
+// today returns string with actual date
 func today() string {
 	year, month, day := time.Now().Date()
 	return dateString(year, int(month), day)
 }
 
+// dateString returns string with given year, month and day in the format: YYYY-MM-DD
 func dateString(year, month, day int) string {
 	yearString := strconv.Itoa(year)
 	monthString := strconv.Itoa(month)
@@ -109,6 +127,23 @@ func dateString(year, month, day int) string {
 	}
 
 	return yearString + "-" + monthString + "-" + dayString
+}
+
+func loadConfiguration() (*gprops.Props, error) {
+	configFilePath := path.Join(os.Getenv("HOME"), configFileName)
+	configFile, err := os.Open(configFilePath)
+	if err != nil {
+		return nil, err
+	}
+	defer configFile.Close()
+
+	properties := gprops.NewProps()
+	err = properties.Load(configFile)
+	if err != nil {
+		return properties, err
+	}
+	//TODO: fix dealing with errors, so that caller knows what exactly happened
+	return properties, nil
 }
 
 func cmdInit(c *cli.Context) {
