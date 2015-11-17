@@ -13,21 +13,34 @@ import (
 	"time"
 )
 
+// Config settings
 const (
-	configFileName = ".wwrc"
+	CONF_DATAFILE = "DATA_FILE"
+	CONF_VERBOSE  = "VERBOSE"
 )
 
 func main() {
 	dataFile := ""
+	verbose := false
 
-	configSettings, err := loadConfiguration()
-	if configSettings != nil {
+	// Loading properties from config file if exists
+	configSettings := gprops.NewProps()
+	configFile, err := os.Open(path.Join(os.Getenv("HOME"), ".wwrc"))
+	if err == nil {
+		err = configSettings.Load(configFile)
 		if err != nil {
-			fmt.Fprint(os.Stderr, "ww: %s\n", err)
+			fmt.Fprintf(os.Stderr, "weightWatcher: syntax error in %s. Exit.\n", configFile.Name())
 			return
 		}
-		if configSettings.ContainsKey("DATA_FILE") {
-			dataFile = configSettings.Get("DATA_FILE")
+	}
+	configFile.Close()
+	if configSettings.ContainsKey(CONF_DATAFILE) {
+		dataFile = configSettings.Get(CONF_DATAFILE)
+	}
+	if configSettings.ContainsKey(CONF_VERBOSE) {
+		verbose, err = strconv.ParseBool(configSettings.Get(CONF_VERBOSE))
+		if err!=nil {
+			verbose=false
 		}
 	}
 
@@ -43,8 +56,9 @@ func main() {
 	// Global flags
 	app.Flags = []cli.Flag{
 		cli.BoolFlag{
-			Name:  "verbose, b",
-			Usage: "show more output",
+			Name:        "verbose, b",
+			Usage:       "show more output",
+			Destination: &verbose,
 		},
 		cli.StringFlag{
 			Name:  "date, d",
@@ -127,23 +141,6 @@ func dateString(year, month, day int) string {
 	}
 
 	return yearString + "-" + monthString + "-" + dayString
-}
-
-func loadConfiguration() (*gprops.Props, error) {
-	configFilePath := path.Join(os.Getenv("HOME"), configFileName)
-	configFile, err := os.Open(configFilePath)
-	if err != nil {
-		return nil, err
-	}
-	defer configFile.Close()
-
-	properties := gprops.NewProps()
-	err = properties.Load(configFile)
-	if err != nil {
-		return properties, err
-	}
-	//TODO: fix dealing with errors, so that caller knows what exactly happened
-	return properties, nil
 }
 
 func cmdInit(c *cli.Context) {
