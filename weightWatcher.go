@@ -4,8 +4,10 @@
 package main
 
 import (
+	"database/sql"
 	"fmt"
 	"github.com/codegangsta/cli"
+	_ "github.com/mattn/go-sqlite3"
 	"github.com/zbroju/gprops"
 	"os"
 	"path"
@@ -17,6 +19,15 @@ import (
 const (
 	CONF_DATAFILE = "DATA_FILE"
 	CONF_VERBOSE  = "VERBOSE"
+)
+
+// Database properties
+const (
+	DB_PROP_APPNAME_KEY   = "applicationName"
+	DB_PROP_APPNAME_VALUE = "weightWatcher"
+
+	DB_PROP_VERSION_KEY   = "databaseVersion"
+	DB_PROP_VERSION_VALUE = "1.0"
 )
 
 func main() {
@@ -39,8 +50,8 @@ func main() {
 	}
 	if configSettings.ContainsKey(CONF_VERBOSE) {
 		verbose, err = strconv.ParseBool(configSettings.Get(CONF_VERBOSE))
-		if err!=nil {
-			verbose=false
+		if err != nil {
+			verbose = false
 		}
 	}
 
@@ -53,28 +64,26 @@ func main() {
 		cli.Author{"Marcin 'Zbroju' Zbroinski", "marcin@zbroinski.net"},
 	}
 
-	// Global flags
-	app.Flags = []cli.Flag{
-		cli.BoolFlag{
-			Name:        "verbose, b",
-			Usage:       "show more output",
-			Destination: &verbose,
-		},
-		cli.StringFlag{
-			Name:  "date, d",
-			Value: today(),
-			Usage: "date of measurement (format: YYYY-MM-DD)",
-		},
-		cli.Float64Flag{
-			Name:  "weight, w",
-			Value: 0,
-			Usage: "measured weight",
-		},
-		cli.StringFlag{
-			Name:  "file, f",
-			Value: dataFile,
-			Usage: "data file",
-		},
+	// Flags definitions
+	flagDate := cli.StringFlag{
+		Name:  "date, d",
+		Value: today(),
+		Usage: "date of measurement (format: YYYY-MM-DD)",
+	}
+	flagVerbose := cli.BoolFlag{
+		Name:        "verbose, b",
+		Usage:       "show more output",
+		Destination: &verbose,
+	}
+	flagWeight := cli.Float64Flag{
+		Name:  "weight, w",
+		Value: 0,
+		Usage: "measured weight",
+	}
+	flagFile := cli.StringFlag{
+		Name:  "file, f",
+		Value: dataFile,
+		Usage: "data file",
 	}
 
 	// Commands
@@ -82,24 +91,28 @@ func main() {
 		{
 			Name:    "init",
 			Aliases: []string{"I"},
+			Flags:   []cli.Flag{flagVerbose, flagFile},
 			Usage:   "init a new data file specified by the user",
 			Action:  cmdInit,
 		},
 		{
 			Name:    "add",
 			Aliases: []string{"A"},
+			Flags:   []cli.Flag{flagVerbose, flagDate, flagWeight, flagFile},
 			Usage:   "add a new measurement",
 			Action:  cmdAdd,
 		},
 		{
 			Name:    "edit",
 			Aliases: []string{"E"},
+			Flags:   []cli.Flag{flagVerbose, flagDate, flagWeight, flagFile},
 			Usage:   "edit a measurement",
 			Action:  cmdEdit,
 		},
 		{
 			Name:    "remove",
 			Aliases: []string{"R"},
+			Flags:   []cli.Flag{flagVerbose, flagDate, flagFile},
 			Usage:   "remove a measurement",
 			Action:  cmdRemove,
 		},
@@ -144,7 +157,46 @@ func dateString(year, month, day int) string {
 }
 
 func cmdInit(c *cli.Context) {
-	//TODO: write command 'init new data file'
+	// Open file
+	db, err := sql.Open("sqlite3", c.String("file"))
+	if err != nil {
+		fmt.Fprintf(os.Stderr, "weightWatcher: %s\n", err)
+		return
+	}
+	defer db.Close()
+
+	// Create tables
+	sqlStmt := `
+	CREATE TABLE measurements (day DATE, measurement REAL);
+	CREATE TABLE properties (key TEXT, value TEXT);
+	`
+
+	_, err = db.Exec(sqlStmt)
+	if err != nil {
+		fmt.Fprintf(os.Stderr, "weightWatcher:  %s\n", err)
+		return
+	}
+
+	// Insert properties values
+	tx, err := db.Begin()
+	if err != nil {
+		fmt.Fprintf(os.Stderr, "weightWatcher: %s\n", err)
+		return
+	}
+	stmt, err := tx.Prepare("INSERT INTO properties VALUES (?,?);")
+	if err != nil {
+		fmt.Fprint(os.Stderr, "weightWatcher: %s", err)
+		return
+	}
+	defer stmt.Close()
+	_, err = stmt.Exec(DB_PROP_APPNAME_KEY, DB_PROP_APPNAME_VALUE)
+	_, err = stmt.Exec(DB_PROP_VERSION_KEY, DB_PROP_VERSION_VALUE)
+	if err != nil {
+		fmt.Fprintf(os.Stderr, "weightWatcher: %s", err)
+		tx.Rollback()
+		return
+	}
+	tx.Commit()
 }
 
 func cmdAdd(c *cli.Context) {
