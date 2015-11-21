@@ -5,6 +5,7 @@ package main
 
 import (
 	"database/sql"
+	"errors"
 	"fmt"
 	"github.com/codegangsta/cli"
 	_ "github.com/mattn/go-sqlite3"
@@ -22,13 +23,10 @@ const (
 )
 
 // Database properties
-const (
-	DB_PROP_APPNAME_KEY   = "applicationName"
-	DB_PROP_APPNAME_VALUE = "weightWatcher"
-
-	DB_PROP_VERSION_KEY   = "databaseVersion"
-	DB_PROP_VERSION_VALUE = "1.0"
-)
+var DB_PROPERTIES = map[string]string{
+	"applicationName": "weightWatcher",
+	"databaseVersion": "1.0",
+}
 
 func main() {
 	dataFile := ""
@@ -76,8 +74,8 @@ func main() {
 		Destination: &verbose,
 	}
 	flagWeight := cli.Float64Flag{
-		Name:  "weight, w",
-		Value: 0,
+		Name: "weight, w",
+		//		Value: 0,
 		Usage: "measured weight",
 	}
 	flagFile := cli.StringFlag{
@@ -156,6 +154,7 @@ func dateString(year, month, day int) string {
 	return yearString + "-" + monthString + "-" + dayString
 }
 
+// cmdInit creates a new data file and add basic information about the file to properties table.
 func cmdInit(c *cli.Context) {
 	// Check the obligatory parameters and exit if missing
 	if c.String("file") == "" {
@@ -200,11 +199,7 @@ func cmdInit(c *cli.Context) {
 		return
 	}
 	defer stmt.Close()
-	dbProps := map[string]string{
-		DB_PROP_APPNAME_KEY: DB_PROP_APPNAME_VALUE,
-		DB_PROP_VERSION_KEY: DB_PROP_VERSION_VALUE,
-	}
-	for key, value := range dbProps {
+	for key, value := range DB_PROPERTIES {
 		_, err = stmt.Exec(key, value)
 		if err != nil {
 			fmt.Fprintf(os.Stderr, "weightWatcher: %s", err)
@@ -213,10 +208,62 @@ func cmdInit(c *cli.Context) {
 		}
 	}
 	tx.Commit()
+
+	// Show summary if verbose
+	if c.Bool("verbose") == true {
+		fmt.Fprintf(os.Stdout, "weightWatcher: created file %s.\n", c.String("file"))
+	}
 }
 
+// cmdAdd adds measurement to data file
 func cmdAdd(c *cli.Context) {
-	//TODO: write command 'add measurement'
+
+	// Check obligatory flags (file, date, measurement)
+	if c.String("file") == "" {
+		fmt.Fprintf(os.Stderr, "weightWatcher: missing file parameter. Specify it with --file or -f flag.\n")
+		return
+	}
+	if c.String("date") == "" {
+		fmt.Fprintf(os.Stderr, "weightWatcher: missing date parameter. Specify it with --date or -d flag.\n")
+		return
+	}
+	if c.Float64("weight") == 0 {
+		fmt.Fprintf(os.Stderr, "weightWatcher: missing weight parameter. Specify it with --weight or -w flag.\n")
+		return
+	}
+
+	// Open data file
+	db, err := getDataFile(c.String("file"))
+	if err != nil {
+		fmt.Fprintf(os.Stderr, "%s\n", err)
+		return
+	}
+	defer db.Close()
+
+	// Add data to file
+	tx, err := db.Begin()
+	if err != nil {
+		fmt.Fprintf(os.Stderr, "weightWatcher: %s\n", err)
+		return
+	}
+	stmt, err := tx.Prepare("INSERT INTO measurements VALUES (?,?);")
+	if err != nil {
+		fmt.Fprint(os.Stderr, "weightWatcher: %s", err)
+		return
+	}
+	defer stmt.Close()
+	_, err = stmt.Exec(c.String("date"), c.Float64("weight"))
+	if err != nil {
+		fmt.Fprintf(os.Stderr, "weightWatcher: %s", err)
+		tx.Rollback()
+		return
+	}
+	tx.Commit()
+
+	// Show summary if verbose
+	if c.Bool("verbose") == true {
+		fmt.Fprintf(os.Stdout, "weightWatcher: add measurement %d to file %s with date %s.\n", c.Float64("weight"), c.String("file"), c.String("date"))
+	}
 }
 
 func cmdEdit(c *cli.Context) {
@@ -233,4 +280,44 @@ func reportSummary(c *cli.Context) {
 
 func reportHistory(c *cli.Context) {
 	//TODO: write report 'show history'
+}
+
+// getDataFile checks if file exists and is a correct weightWatcher data file.
+// If so, it returns pointer to the sql.DB, or otherwise nil and error.
+func getDataFile(filePath string) (*sql.DB, error) {
+	errorMessage := "weightWatcher: file " + filePath + " is not a correct weightWatcher data file."
+
+	// Check if file exist and if not - exit
+	if _, err := os.Stat(filePath); os.IsNotExist(err) {
+		return nil, errors.New("weightWatcher: file " + filePath + " does not exist.")
+	}
+
+	// Open file
+	db, err := sql.Open("sqlite3", filePath)
+	if err != nil {
+		return nil, errors.New(errorMessage)
+	}
+
+	// Check if the file is weightWatcher database
+	rows, err := db.Query("SELECT key, value FROM properties;")
+	if err != nil {
+		return nil, errors.New(errorMessage)
+	}
+	if rows.Next() == false {
+		return nil, errors.New(errorMessage)
+	} else {
+		for rows.Next() {
+			var key, value string
+			err = rows.Scan(&key, &value)
+			if err != nil {
+				return nil, errors.New(errorMessage)
+			}
+			if DB_PROPERTIES[key] != "" && DB_PROPERTIES[key] != value {
+				return nil, errors.New(errorMessage)
+			}
+		}
+	}
+	rows.Close()
+
+	return db, nil
 }
