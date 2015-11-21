@@ -157,6 +157,18 @@ func dateString(year, month, day int) string {
 }
 
 func cmdInit(c *cli.Context) {
+	// Check the obligatory parameters and exit if missing
+	if c.String("file") == "" {
+		fmt.Fprint(os.Stderr, "weightWatcher: missing information about data file. Specify it with --file or -f flag.\n")
+		return
+	}
+
+	// Check if file exist and if so - exit
+	if _, err := os.Stat(c.String("file")); !os.IsNotExist(err) {
+		fmt.Fprintf(os.Stderr, "weightWatcher: file %s already exists.\n", c.String("file"))
+		return
+	}
+
 	// Open file
 	db, err := sql.Open("sqlite3", c.String("file"))
 	if err != nil {
@@ -170,7 +182,6 @@ func cmdInit(c *cli.Context) {
 	CREATE TABLE measurements (day DATE, measurement REAL);
 	CREATE TABLE properties (key TEXT, value TEXT);
 	`
-
 	_, err = db.Exec(sqlStmt)
 	if err != nil {
 		fmt.Fprintf(os.Stderr, "weightWatcher:  %s\n", err)
@@ -189,12 +200,17 @@ func cmdInit(c *cli.Context) {
 		return
 	}
 	defer stmt.Close()
-	_, err = stmt.Exec(DB_PROP_APPNAME_KEY, DB_PROP_APPNAME_VALUE)
-	_, err = stmt.Exec(DB_PROP_VERSION_KEY, DB_PROP_VERSION_VALUE)
-	if err != nil {
-		fmt.Fprintf(os.Stderr, "weightWatcher: %s", err)
-		tx.Rollback()
-		return
+	dbProps := map[string]string{
+		DB_PROP_APPNAME_KEY: DB_PROP_APPNAME_VALUE,
+		DB_PROP_VERSION_KEY: DB_PROP_VERSION_VALUE,
+	}
+	for key, value := range dbProps {
+		_, err = stmt.Exec(key, value)
+		if err != nil {
+			fmt.Fprintf(os.Stderr, "weightWatcher: %s", err)
+			tx.Rollback()
+			return
+		}
 	}
 	tx.Commit()
 }
