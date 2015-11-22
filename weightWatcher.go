@@ -83,6 +83,11 @@ func main() {
 		Value: dataFile,
 		Usage: "data file",
 	}
+	flagId := cli.IntFlag{
+		Name:  "id, i",
+		Value: -1,
+		Usage: "id of edited or removed object",
+	}
 
 	// Commands
 	app.Commands = []cli.Command{
@@ -98,21 +103,21 @@ func main() {
 			Aliases: []string{"A"},
 			Flags:   []cli.Flag{flagVerbose, flagDate, flagWeight, flagFile},
 			Usage:   "add a new measurement",
-			Action:  cmdAdd,
+			Action:  cmdAddmeasurement,
 		},
 		{
 			Name:    "edit",
 			Aliases: []string{"E"},
-			Flags:   []cli.Flag{flagVerbose, flagDate, flagWeight, flagFile},
+			Flags:   []cli.Flag{flagVerbose, flagDate, flagWeight, flagFile, flagId},
 			Usage:   "edit a measurement",
-			Action:  cmdEdit,
+			Action:  cmdEditMeasurement,
 		},
 		{
 			Name:    "remove",
 			Aliases: []string{"R"},
 			Flags:   []cli.Flag{flagVerbose, flagDate, flagFile},
 			Usage:   "remove a measurement",
-			Action:  cmdRemove,
+			Action:  cmdRemoveMeasurement,
 		},
 		{
 			Name:    "show",
@@ -178,8 +183,10 @@ func cmdInit(c *cli.Context) {
 
 	// Create tables
 	sqlStmt := `
-	CREATE TABLE measurements (day DATE, measurement REAL);
+	BEGIN TRANSACTION;
+	CREATE TABLE measurements (measurement_id INTEGER PRIMARY KEY, day DATE, measurement REAL);
 	CREATE TABLE properties (key TEXT, value TEXT);
+	COMMIT;
 	`
 	_, err = db.Exec(sqlStmt)
 	if err != nil {
@@ -215,8 +222,8 @@ func cmdInit(c *cli.Context) {
 	}
 }
 
-// cmdAdd adds measurement to data file
-func cmdAdd(c *cli.Context) {
+// cmdAddMeasurement adds measurement to data file
+func cmdAddmeasurement(c *cli.Context) {
 
 	// Check obligatory flags (file, date, measurement)
 	if c.String("file") == "" {
@@ -241,36 +248,74 @@ func cmdAdd(c *cli.Context) {
 	defer db.Close()
 
 	// Add data to file
-	tx, err := db.Begin()
+	sqlStmt := fmt.Sprintf("INSERT INTO measurements VALUES (NULL, '%s', %f);", c.String("date"), c.Float64("weight"))
+
+	_, err = db.Exec(sqlStmt)
 	if err != nil {
 		fmt.Fprintf(os.Stderr, "weightWatcher: %s\n", err)
 		return
 	}
-	stmt, err := tx.Prepare("INSERT INTO measurements VALUES (?,?);")
-	if err != nil {
-		fmt.Fprint(os.Stderr, "weightWatcher: %s", err)
-		return
-	}
-	defer stmt.Close()
-	_, err = stmt.Exec(c.String("date"), c.Float64("weight"))
-	if err != nil {
-		fmt.Fprintf(os.Stderr, "weightWatcher: %s", err)
-		tx.Rollback()
-		return
-	}
-	tx.Commit()
 
 	// Show summary if verbose
 	if c.Bool("verbose") == true {
-		fmt.Fprintf(os.Stdout, "weightWatcher: add measurement %d to file %s with date %s.\n", c.Float64("weight"), c.String("file"), c.String("date"))
+		fmt.Fprintf(os.Stdout, "weightWatcher: add measurement %3.2f to file %s with date %s.\n",
+			c.Float64("weight"),
+			c.String("file"),
+			c.String("date"))
 	}
 }
 
-func cmdEdit(c *cli.Context) {
-	//TODO: write command 'edit measurement'
+// cmdEditMeasurement edit value or date for a measurement with given ID.
+func cmdEditMeasurement(c *cli.Context) {
+	// Check obligatory flags (id, file)
+	if c.Int("id") < 0 {
+		fmt.Fprintf(os.Stderr, "weightWatcher: missing ID parameter. Specify it with --id or -i flag.\n")
+		return
+	}
+	if c.String("file") == "" {
+		fmt.Fprintf(os.Stderr, "weightWatcher: missing file parameter. Specify it with --file or -f flag.\n")
+		return
+	}
+
+	// Open data file
+	db, err := getDataFile(c.String("file"))
+	if err != nil {
+		fmt.Fprintf(os.Stderr, "%s\n", err)
+		return
+	}
+	defer db.Close()
+
+	// Check if measurement with given ID exists
+	if !measurementExist(c.Int("id"), db) {
+		fmt.Fprintf(os.Stderr, "weightWatcher: measurement with id=%d does not exist.\n", c.Int("id"))
+		return
+	}
+
+	// Edit data
+	sqlStmt := "BEGIN TRANSACTION;"
+	if c.String("date") != "" {
+		sqlStmt += fmt.Sprintf("UPDATE measurements SET day='%s' WHERE measurement_id=%d;", c.String("date"), c.Int("id"))
+	}
+	if c.Float64("weight") != 0 {
+		sqlStmt += fmt.Sprintf("UPDATE measurements SET measurement=%f WHERE measurement_id=%d;", c.Float64("weight"), c.Int("id"))
+	}
+	sqlStmt += "COMMIT;"
+	_, err = db.Exec(sqlStmt)
+	if err != nil {
+		fmt.Fprintf(os.Stderr, "weightWatcher: %s\n", err)
+		return
+	}
+
+	// Show summary if verbose
+	if c.Bool("verbose") == true {
+		fmt.Fprintf(os.Stdout, "weightWatcher: edited measurement %3.2f to file %s with date %s.\n",
+			c.Float64("weight"),
+			c.String("file"),
+			c.String("date"))
+	}
 }
 
-func cmdRemove(c *cli.Context) {
+func cmdRemoveMeasurement(c *cli.Context) {
 	//TODO: write command 'remove measurement'
 }
 
@@ -320,4 +365,16 @@ func getDataFile(filePath string) (*sql.DB, error) {
 	rows.Close()
 
 	return db, nil
+}
+
+// measurementExists returns true if a measurement with given id exists, or false otherwise.
+func measurementExist(id int, db *sql.DB) bool {
+	sqlStmt := fmt.Sprintf("SELECT measurement_id FROM measurements WHERE measurement_id=%d;", id)
+	rows, err := db.Query(sqlStmt)
+	defer rows.Close()
+	if err == nil && rows.Next() {
+		return true
+	} else {
+		return false
+	}
 }
