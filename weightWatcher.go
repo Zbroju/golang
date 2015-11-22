@@ -115,7 +115,7 @@ func main() {
 		{
 			Name:    "remove",
 			Aliases: []string{"R"},
-			Flags:   []cli.Flag{flagVerbose, flagDate, flagFile},
+			Flags:   []cli.Flag{flagVerbose, flagFile, flagId},
 			Usage:   "remove a measurement",
 			Action:  cmdRemoveMeasurement,
 		},
@@ -316,7 +316,47 @@ func cmdEditMeasurement(c *cli.Context) {
 }
 
 func cmdRemoveMeasurement(c *cli.Context) {
-	//TODO: write command 'remove measurement'
+
+	// Check obligatory flags (id, file)
+	if c.Int("id") < 0 {
+		fmt.Fprintf(os.Stderr, "weightWatcher: missing ID parameter. Specify it with --id or -i flag.\n")
+		return
+	}
+	if c.String("file") == "" {
+		fmt.Fprintf(os.Stderr, "weightWatcher: missing file parameter. Specify it with --file or -f flag.\n")
+		return
+	}
+
+	// Open data file
+	db, err := getDataFile(c.String("file"))
+	if err != nil {
+		fmt.Fprintf(os.Stderr, "%s\n", err)
+		return
+	}
+	defer db.Close()
+
+	// Check if measurement with given ID exists
+	if !measurementExist(c.Int("id"), db) {
+		fmt.Fprintf(os.Stderr, "weightWatcher: measurement with id=%d does not exist.\n", c.Int("id"))
+		return
+	}
+
+	// Remove measurements
+	var sqlStmt string
+	sqlStmt = fmt.Sprintf("DELETE FROM measurements WHERE measurement_id=%d;", c.Int("id"))
+	_, err = db.Exec(sqlStmt)
+	if err != nil {
+		fmt.Fprintf(os.Stderr, "weightWatcher: %s\n", err)
+		return
+	}
+
+	// Show summary if verbose
+	if c.Bool("verbose") == true {
+		fmt.Fprintf(os.Stdout, "weightWatcher: deleted measurement with id=%d from file %s.\n",
+			c.Int("id"),
+			c.String("file"))
+	}
+
 }
 
 func reportSummary(c *cli.Context) {
