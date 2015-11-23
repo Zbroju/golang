@@ -1,4 +1,4 @@
-// Copyright 2009 Marcin 'Zbroju' Zbroinski. All rights reserved.
+// Written 2015 by Marcin 'Zbroju' Zbroinski. All rights reserved.
 // Use of this source code is governed by a GNU General Public License
 // that can be found in the LICENSE file.
 package main
@@ -18,8 +18,9 @@ import (
 
 // Config settings
 const (
-	CONF_DATAFILE = "DATA_FILE"
-	CONF_VERBOSE  = "VERBOSE"
+	CONF_DATAFILE      = "DATA_FILE"
+	CONF_VERBOSE       = "VERBOSE"
+	CONF_MOVINGAVERAGE = "MOVING_AVERAGE"
 )
 
 // Database properties
@@ -31,6 +32,9 @@ var DB_PROPERTIES = map[string]string{
 func main() {
 	dataFile := ""
 	verbose := false
+	movingAverage := 7
+
+	//TODO set variable cli.AppHelpTemplate so that subcommands are shown in help
 
 	// Loading properties from config file if exists
 	configSettings := gprops.NewProps()
@@ -50,6 +54,13 @@ func main() {
 		verbose, err = strconv.ParseBool(configSettings.Get(CONF_VERBOSE))
 		if err != nil {
 			verbose = false
+		}
+	}
+	if configSettings.ContainsKey(CONF_MOVINGAVERAGE) {
+		movingAverage, err = strconv.Atoi(configSettings.Get(CONF_MOVINGAVERAGE))
+		if err != nil {
+			fmt.Fprintf(os.Stderr, "weightWatcher: syntax error in %s. Exit.\n", configFile.Name())
+			return
 		}
 	}
 
@@ -88,6 +99,11 @@ func main() {
 		Value: -1,
 		Usage: "id of edited or removed object",
 	}
+	flagMovAv := cli.IntFlag{
+		Name:  "average, a",
+		Value: movingAverage,
+		Usage: "measurement subset size for calculating moving average",
+	}
 
 	// Commands
 	app.Commands = []cli.Command{
@@ -103,7 +119,7 @@ func main() {
 			Aliases: []string{"A"},
 			Flags:   []cli.Flag{flagVerbose, flagDate, flagWeight, flagFile},
 			Usage:   "add a new measurement",
-			Action:  cmdAddmeasurement,
+			Action:  cmdAddMeasurement,
 		},
 		{
 			Name:    "edit",
@@ -126,37 +142,23 @@ func main() {
 			// Reports
 			Subcommands: []cli.Command{
 				{
-					Name:   "summary",
-					Usage:  "current weight (average of last few days)",
-					Action: reportSummary,
+					Name:    "summary",
+					Aliases: []string{"S"},
+					Flags:   []cli.Flag{flagFile, flagMovAv},
+					Usage:   "current weight (average of last few days)",
+					Action:  reportSummary,
 				},
 				{
-					Name:   "history",
-					Usage:  "historical data with moving average (<x> periods)",
-					Action: reportHistory,
+					Name:    "history",
+					Aliases: []string{"h"},
+					Flags:   []cli.Flag{flagFile, flagMovAv},
+					Usage:   "historical data with moving average (<x> periods)",
+					Action:  reportHistory,
 				},
 			},
 		},
 	}
 	app.Run(os.Args)
-}
-
-// today returns string with actual date
-func today() string {
-	year, month, day := time.Now().Date()
-	return dateString(year, int(month), day)
-}
-
-// dateString returns string with given year, month and day in the format: YYYY-MM-DD
-func dateString(year, month, day int) string {
-	yearString := strconv.Itoa(year)
-	monthString := strconv.Itoa(month)
-	dayString := strconv.Itoa(day)
-	if len(dayString) < 2 {
-		dayString = "0" + dayString
-	}
-
-	return yearString + "-" + monthString + "-" + dayString
 }
 
 // cmdInit creates a new data file and add basic information about the file to properties table.
@@ -185,6 +187,7 @@ func cmdInit(c *cli.Context) {
 	sqlStmt := `
 	BEGIN TRANSACTION;
 	CREATE TABLE measurements (measurement_id INTEGER PRIMARY KEY, day DATE, measurement REAL);
+	CREATE TABLE goals (goal_id INTEGER PRIMARY KEY, day_from DATE, day_to DATE, goal REAL);
 	CREATE TABLE properties (key TEXT, value TEXT);
 	COMMIT;
 	`
@@ -223,7 +226,7 @@ func cmdInit(c *cli.Context) {
 }
 
 // cmdAddMeasurement adds measurement to data file
-func cmdAddmeasurement(c *cli.Context) {
+func cmdAddMeasurement(c *cli.Context) {
 
 	// Check obligatory flags (file, date, measurement)
 	if c.String("file") == "" {
@@ -315,6 +318,7 @@ func cmdEditMeasurement(c *cli.Context) {
 	}
 }
 
+// cmdRemoveMeasurement removes measurement with given id.
 func cmdRemoveMeasurement(c *cli.Context) {
 
 	// Check obligatory flags (id, file)
@@ -418,3 +422,28 @@ func measurementExist(id int, db *sql.DB) bool {
 		return false
 	}
 }
+
+// today returns string with actual date
+func today() string {
+	year, month, day := time.Now().Date()
+	return dateString(year, int(month), day)
+}
+
+// dateString returns string with given year, month and day in the format: YYYY-MM-DD
+func dateString(year, month, day int) string {
+	yearString := strconv.Itoa(year)
+	monthString := strconv.Itoa(month)
+	dayString := strconv.Itoa(day)
+	if len(dayString) < 2 {
+		dayString = "0" + dayString
+	}
+
+	return yearString + "-" + monthString + "-" + dayString
+}
+
+//TODO: write listMeasurements
+//TODO: write addGoal
+//TODO: write listGoals
+//TODO: write editGoal
+//TODO: write removeGoal
+//TODO: write report script for gnuplot
