@@ -34,7 +34,7 @@ func main() {
 	verbose := false
 	movingAverage := 7
 
-	//TODO set variable cli.AppHelpTemplate so that subcommands are shown in help
+	//TODO: set variable cli.AppHelpTemplate so that subcommands are shown in help
 
 	// Loading properties from config file if exists
 	configSettings := gprops.NewProps()
@@ -136,18 +136,18 @@ func main() {
 			Action:  cmdRemoveMeasurement,
 		},
 		{
+			Name:    "list",
+			Aliases: []string{"L"},
+			Flags:   []cli.Flag{flagVerbose, flagFile},
+			Usage:   "lists all measurements",
+			Action:  cmdListMeasurements,
+		},
+		{
 			Name:    "show",
 			Aliases: []string{"S"},
 			Usage:   "show report",
 			// Reports
 			Subcommands: []cli.Command{
-				{
-					Name:    "summary",
-					Aliases: []string{"S"},
-					Flags:   []cli.Flag{flagFile, flagMovAv},
-					Usage:   "current weight (average of last few days)",
-					Action:  reportSummary,
-				},
 				{
 					Name:    "history",
 					Aliases: []string{"h"},
@@ -187,8 +187,7 @@ func cmdInit(c *cli.Context) {
 	sqlStmt := `
 	BEGIN TRANSACTION;
 	CREATE TABLE measurements (measurement_id INTEGER PRIMARY KEY, day DATE, measurement REAL);
-	CREATE TABLE goals (goal_id INTEGER PRIMARY KEY, day_from DATE, day_to DATE, goal REAL);
-	CREATE TABLE properties (key TEXT, value TEXT);
+		CREATE TABLE properties (key TEXT, value TEXT);
 	COMMIT;
 	`
 	_, err = db.Exec(sqlStmt)
@@ -363,8 +362,38 @@ func cmdRemoveMeasurement(c *cli.Context) {
 
 }
 
-func reportSummary(c *cli.Context) {
-	//TODO: write report 'show summary'
+// cmdListMeasurements lists all entries from database
+func cmdListMeasurements(c *cli.Context) {
+
+	// Check obligatory flags
+	if c.String("file") == "" {
+		fmt.Fprintf(os.Stderr, "weightWatcher: missing file parameter. Specify it with --file or -f flag.\n")
+		return
+	}
+
+	// Open data file
+	db, err := getDataFile(c.String("file"))
+	if err != nil {
+		fmt.Fprintf(os.Stderr, "%s\n", err)
+		return
+	}
+	defer db.Close()
+
+	// Flush entries to standard out
+	rows, err := db.Query("SELECT measurement_id, date(day), measurement FROM measurements ORDER BY day;")
+	if err != nil {
+		fmt.Fprintf(os.Stderr, "weightWatcher: error reading data file.\n")
+		return
+	}
+	defer rows.Close()
+	fmt.Printf("%+4s  %-10s  %11s\n", "ID", "DATE", "MEASUREMENT")
+	for rows.Next() {
+		var id int
+		var day string
+		var measurement float32
+		rows.Scan(&id, &day, &measurement)
+		fmt.Printf("%4d  %-10s  %11.2f\n", id, day, measurement)
+	}
 }
 
 func reportHistory(c *cli.Context) {
@@ -441,9 +470,4 @@ func dateString(year, month, day int) string {
 	return yearString + "-" + monthString + "-" + dayString
 }
 
-//TODO: write listMeasurements
-//TODO: write addGoal
-//TODO: write listGoals
-//TODO: write editGoal
-//TODO: write removeGoal
 //TODO: write report script for gnuplot
