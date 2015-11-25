@@ -34,7 +34,19 @@ func main() {
 	verbose := false
 	movingAverage := 7
 
-	//TODO: set variable cli.AppHelpTemplate so that subcommands are shown in help
+	cli.CommandHelpTemplate = `NAME:
+   {{.HelpName}} - {{.Usage}}
+USAGE:
+   {{.HelpName}}{{if .Subcommands}} [subcommand]{{end}}{{if .Flags}} [command options]{{end}} {{if .ArgsUsage}}{{.ArgsUsage}}{{else}}[arguments...]{{end}}{{if .Description}}
+DESCRIPTION:
+   {{.Description}}{{end}}{{if .Flags}}
+OPTIONS:
+   {{range .Flags}}{{.}}
+   {{end}}{{ end }}{{if .Subcommands}}
+SUBCOMMANDS:
+    {{range .Subcommands}}{{join .Names ", "}}{{ "\t" }}{{.Usage}}
+{{end}}{{ end }}
+`
 
 	// Loading properties from config file if exists
 	configSettings := gprops.NewProps()
@@ -150,7 +162,7 @@ func main() {
 			Subcommands: []cli.Command{
 				{
 					Name:    "history",
-					Aliases: []string{"h"},
+					Aliases: []string{"a"},
 					Flags:   []cli.Flag{flagFile, flagMovAv},
 					Usage:   "historical data with moving average (<x> periods)",
 					Action:  reportHistory,
@@ -397,7 +409,36 @@ func cmdListMeasurements(c *cli.Context) {
 }
 
 func reportHistory(c *cli.Context) {
-	//TODO: write report 'show history'
+
+	// Check obligatory flags
+	if c.String("file") == "" {
+		fmt.Fprintf(os.Stderr, "weightWatcher: missing file parameter. Specify it with --file or -f flag.\n")
+		return
+	}
+
+	// Open data file
+	db, err := getDataFile(c.String("file"))
+	if err != nil {
+		fmt.Fprintf(os.Stderr, "%s\n", err)
+		return
+	}
+	defer db.Close()
+
+	// Calculate moving average and show results on standard output
+	rows, err := db.Query("SELECT date(day), measurement FROM measurements ORDER BY day;")
+	if err != nil {
+		fmt.Fprintf(os.Stderr, "weightWatcher: error reading data file.\n")
+		return
+	}
+	defer rows.Close()
+	movingAverage := simpleMovingAverage(c.Int("average"))
+	fmt.Printf("%-10s  %11s  %7s\n", "DATE", "MEASUREMENT", "AVERAGE")
+	for rows.Next() {
+		var day string
+		var measurement float64
+		rows.Scan(&day, &measurement)
+		fmt.Printf("%-10s  %11.2f  %7.2f\n", day, measurement, movingAverage(measurement))
+	}
 }
 
 // getDataFile checks if file exists and is a correct weightWatcher data file.
@@ -470,4 +511,25 @@ func dateString(year, month, day int) string {
 	return yearString + "-" + monthString + "-" + dayString
 }
 
-//TODO: write report script for gnuplot
+// simpleMovingAverage returns function for moving average with period equals n.
+func simpleMovingAverage(n int) func(float64) float64 {
+	s := make([]float64, 0, n)
+	i, sum, rn := 0, 0., 1/float64(n)
+	return func(x float64) float64 {
+		if len(s) < n {
+			sum += x
+			s = append(s, x)
+			return sum / float64(len(s))
+		}
+		s[i] = x
+		i++
+		if i == n {
+			i = 0
+		}
+		sum = 0
+		for _, x = range s {
+			sum += x
+		}
+		return sum * rn
+	}
+}
