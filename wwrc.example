@@ -6,3 +6,6 @@ DATA_FILE = /home/user/wwdata
 
 # VERBOSE sets the default verbose mode.
 VERBOSE = true
+
+# MOVING_AVERAGE sets the period for moving average measurement
+MOVING_AVERAGE = 7
