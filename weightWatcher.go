@@ -49,7 +49,7 @@ SUBCOMMANDS:
 `
 
 	// Loading properties from config file if exists
-	configSettings := gprops.NewProps()
+	configSettings := gprops.New()
 	configFile, err := os.Open(path.Join(os.Getenv("HOME"), ".wwrc"))
 	if err == nil {
 		err = configSettings.Load(configFile)
@@ -59,16 +59,16 @@ SUBCOMMANDS:
 		}
 	}
 	configFile.Close()
-	if configSettings.ContainsKey(CONF_DATAFILE) {
+	if configSettings.Contains(CONF_DATAFILE) {
 		dataFile = configSettings.Get(CONF_DATAFILE)
 	}
-	if configSettings.ContainsKey(CONF_VERBOSE) {
+	if configSettings.Contains(CONF_VERBOSE) {
 		verbose, err = strconv.ParseBool(configSettings.Get(CONF_VERBOSE))
 		if err != nil {
 			verbose = false
 		}
 	}
-	if configSettings.ContainsKey(CONF_MOVINGAVERAGE) {
+	if configSettings.Contains(CONF_MOVINGAVERAGE) {
 		movingAverage, err = strconv.Atoi(configSettings.Get(CONF_MOVINGAVERAGE))
 		if err != nil {
 			fmt.Fprintf(os.Stderr, "weightWatcher: syntax error in %s. Exit.\n", configFile.Name())
