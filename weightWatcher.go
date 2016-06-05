@@ -1,6 +1,19 @@
 // Written 2015 by Marcin 'Zbroju' Zbroinski.
 // Use of this source code is governed by a GNU General Public License
 // that can be found in the LICENSE file.
+
+//TODO: refactor to use gsqlitehandler
+//TODO: refactor to use log for errors
+//TODO: refactor to use time library
+//TODO: design database to hold data for body fat
+//TODO: design database to hold data for body dimensions
+//TODO: code add/edit/remove/list data for body fat
+//TODO: code add/edit/remove/list data for body dimension
+//TODO: add report with bmi
+//TODO: add report with body fat for different methods
+//TODO: add report with gnuplot weight
+//TODO: add report with gnuplot body fat
+//TODO: add report with gnuplot body dimensions
 package main
 
 import (
